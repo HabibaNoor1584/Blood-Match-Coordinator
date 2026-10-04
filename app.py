@@ -959,7 +959,6 @@ national traffic, and data resets when the cloud app restarts.
     "Donor Portal": page_donor,
     "About & Limits": page_about
 
-```python
 }[st.session_state.page]()
 ```
 {"Coordinator Dashboard": page_dashboard, "New Request": page_new_request,
