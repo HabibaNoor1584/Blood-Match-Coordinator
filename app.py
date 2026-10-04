@@ -218,6 +218,66 @@ def page_dashboard():
     matches = db.get_matches(rid)
     covered = sum(1 for x in matches if x["status"] == "Accepted")
 
+    # ================================================================
+    # DONOR RESPONSE / REQUESTER UPDATE
+    # ================================================================
+    accepted_matches = [x for x in matches if x["status"] == "Accepted"]
+    alerted_matches = [x for x in matches if x["status"] == "Alerted"]
+    declined_matches = [x for x in matches if x["status"] == "Declined"]
+
+    # Manual refresh so the coordinator can immediately see donor responses
+    if st.button("🔄 Refresh donor responses", key=f"refresh_dashboard_{rid}"):
+        st.rerun()
+
+    if accepted_matches:
+        st.subheader("🔔 Donor response updates")
+
+        units_needed = req["units"] or 0
+
+        if req["status"] == "Fulfilled":
+            st.success(
+                f"✅ Request fulfilled. {covered} donor(s) have accepted "
+                f"the request for {units_needed} unit(s)."
+            )
+        else:
+            remaining = max(units_needed - covered, 0)
+            st.info(
+                f"🩸 {covered} donor(s) have accepted this request. "
+                f"{remaining} unit(s) still needed."
+            )
+
+        for donor in accepted_matches:
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 2])
+
+                with c1:
+                    st.markdown(f"### ✅ {donor['name']} accepted")
+
+                    st.write(
+                        f"**Blood group:** {donor['blood_group']}  \n"
+                        f"**Distance:** {donor['distance_km']:.2f} km  \n"
+                        f"**Response:** Accepted"
+                    )
+
+                with c2:
+                    st.success("Donor has confirmed availability.")
+                    st.caption(
+                        "The donor response has been recorded. "
+                        "Final donor eligibility and screening must be "
+                        "confirmed by the hospital blood bank."
+                    )
+
+    elif alerted_matches:
+        st.info(
+            f"📣 {len(alerted_matches)} compatible donor(s) have been alerted. "
+            "Waiting for donor responses."
+        )
+
+    elif declined_matches:
+        st.warning(
+            f"Donor alerts were sent, but no donor has accepted this request yet."
+        )
+
     left, right = st.columns([3, 2])
     with left:
         st.subheader(f"Request #{rid}")
