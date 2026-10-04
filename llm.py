@@ -25,6 +25,11 @@ def _secret(name):
     return os.environ.get(name, "")
 
 
+def secret(name):
+    """Public helper: read a Streamlit secret or environment variable."""
+    return _secret(name)
+
+
 def model_name():
     return _secret("GROQ_MODEL") or DEFAULT_MODEL
 
