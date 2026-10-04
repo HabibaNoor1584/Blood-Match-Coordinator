@@ -1,4 +1,4 @@
-```python
+
 """BloodMatch Coordinator: Streamlit app.
 Demo with SYNTHETIC data. Organizes information only. Makes no medical decisions.
 """
