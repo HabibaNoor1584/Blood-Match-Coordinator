@@ -421,6 +421,187 @@ def page_dashboard():
 
 
 # ================================================================ donor portal
+
+@st.fragment(run_every="5s")
+def _inbox(donor_id):
+    items = db.donor_notifications(donor_id)
+
+    st.subheader("📬 Your Blood Donation Requests")
+    st.caption(
+        "New blood requests matching your donor profile appear here. "
+        "Review the case and choose whether you are willing to donate."
+    )
+
+    if not items:
+        st.info(
+            "No blood requests are available for you right now. "
+            "When a compatible request is created within the matching radius, "
+            "it will appear here."
+        )
+        return
+
+    for n in items:
+
+        with st.container(border=True):
+
+            # ---------------------------------------------------------
+            # CASE INFORMATION
+            # ---------------------------------------------------------
+            st.markdown(
+                f"## 🩸 {URG.get(n['urgency'], '')} {n['urgency']} Blood Request"
+            )
+
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.metric("Blood group", n["blood_group"])
+
+            with c2:
+                st.metric("Hospital", n["hospital"])
+
+            with c3:
+                st.metric("City", n["city"])
+
+            st.markdown(
+                f"**Request created:** {n['created']}  \n"
+                f"**Alert channel:** {n['channel']}"
+            )
+
+            st.divider()
+
+            # ---------------------------------------------------------
+            # MESSAGE FROM COORDINATOR
+            # ---------------------------------------------------------
+            st.subheader("📣 Donation Request")
+
+            st.write(n["message"])
+
+            ms = n["match_status"]
+
+            # ---------------------------------------------------------
+            # REQUEST IS STILL WAITING FOR DONOR RESPONSE
+            # ---------------------------------------------------------
+            if ms == "Alerted" and n["req_status"] not in db.CLOSED:
+
+                st.warning(
+                    "🩸 This donor request is waiting for your response."
+                )
+
+                st.markdown(
+                    """
+                    **Are you willing and available to donate blood for this case?**
+
+                    By selecting **Accept**, you are telling the coordinator that
+                    you are willing to proceed with this donation request.
+
+                    Your acceptance does not replace hospital blood-bank screening.
+                    Final donor eligibility will be confirmed by the hospital.
+                    """
+                )
+
+                c1, c2, _ = st.columns([1.5, 1.5, 3])
+
+                with c1:
+                    if st.button(
+                        "✅ I am willing to donate",
+                        key=f"accept_{n['id']}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        res = db.respond(n["id"], True)
+
+                        if res == "busy":
+                            st.error(
+                                "You have already accepted another active blood request."
+                            )
+                        else:
+                            st.success(
+                                "Your willingness to donate has been recorded."
+                            )
+
+                        st.rerun(scope="fragment")
+
+                with c2:
+                    if st.button(
+                        "❌ I cannot donate",
+                        key=f"decline_{n['id']}",
+                        use_container_width=True,
+                    ):
+                        db.respond(n["id"], False)
+
+                        st.info(
+                            "You have declined this blood request."
+                        )
+
+                        st.rerun(scope="fragment")
+
+            # ---------------------------------------------------------
+            # DONOR ACCEPTED
+            # ---------------------------------------------------------
+            elif ms == "Accepted":
+
+                st.success(
+                    "✅ You accepted this blood donation request."
+                )
+
+                st.markdown(
+                    """
+                    ### 🤝 Donation connection confirmed
+
+                    You have indicated that you are willing to donate.
+                    Your acceptance has been recorded and the coordinator
+                    has been notified.
+                    """
+                )
+
+                st.subheader("📞 Requester Contact")
+
+                st.info(
+                    f"**Requester / Patient representative:** "
+                    f"{n['contact_name'] or 'Not provided'}  \n\n"
+                    f"**Phone:** {n['contact_phone'] or 'Not provided'}"
+                )
+
+                st.subheader("🏥 Donation Location")
+
+                st.info(
+                    f"**Hospital:** {n['hospital']}  \n"
+                    f"**City:** {n['city']}"
+                )
+
+                st.success(
+                    "The requester can now contact you regarding the donation."
+                )
+
+                st.caption(
+                    "Important: This system only coordinates the connection. "
+                    "Please confirm with the hospital blood bank before travelling. "
+                    "The blood bank performs the final donor screening and "
+                    "determines medical eligibility."
+                )
+
+            # ---------------------------------------------------------
+            # DONOR DECLINED
+            # ---------------------------------------------------------
+            elif ms == "Declined":
+
+                st.error(
+                    "❌ You declined this blood donation request."
+                )
+
+                st.caption(
+                    "You can wait for another compatible blood request."
+                )
+
+            # ---------------------------------------------------------
+            # REQUEST CLOSED BEFORE DONOR RESPONDED
+            # ---------------------------------------------------------
+            elif n["req_status"] in db.CLOSED and ms != "Accepted":
+
+                st.info(
+                    "🔒 This blood request has been closed before you accepted it."
+                )
+                
 def _donor_form_register():
     st.subheader("Register as a volunteer donor")
     st.caption("You will be alerted when a compatible request is within 3 km of your location. You can pause or delete your profile at any time.")
