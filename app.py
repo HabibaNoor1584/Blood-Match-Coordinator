@@ -214,7 +214,7 @@ def page_dashboard():
 if st.session_state.get("dashboard_request_selector") not in ids:
     st.session_state.dashboard_request_selector = ids[0]
 
-rid = st.selectbox(
+ rid = st.selectbox(
     "Request",
     ids,
     format_func=lambda i: labels[i],
