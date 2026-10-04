@@ -48,6 +48,18 @@ CITY_WEIGHTS = {
     "Abbottabad": 5, "Quetta": 4, "Multan": 6, "Faisalabad": 7,
 }
 
+# Fictional demo hospitals placed near each city centre so the 3 km radius is meaningful.
+# Replace with a real, verified hospital list (with coordinates) for a real deployment.
+_DEMO_HOSPITALS = [
+    ("City Care Hospital", 0.012, 0.008),
+    ("Green Crescent Medical Centre", -0.010, 0.014),
+    ("Noor Teaching Hospital", 0.005, -0.015),
+]
+HOSPITALS = {
+    city: [(n, round(lat + dl, 5), round(lon + do, 5)) for n, dl, do in _DEMO_HOSPITALS]
+    for city, (lat, lon) in CITIES.items()
+}
+
 REQUIRED_FIELDS = {
     "blood_group": "patient blood group",
     "units": "number of units needed",
