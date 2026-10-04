@@ -56,7 +56,7 @@ def banner():
 def goto(rid=None):
     st.session_state.page = "Coordinator Dashboard"
     if rid:
-        st.session_state.selected_request = rid
+        st.session_state.dashboard_request_selector = rid
 
 
 # ================================================================ sidebar
@@ -211,10 +211,15 @@ def page_dashboard():
         for r in reqs
     }
     ids = list(labels)
-    if st.session_state.get("selected_request") not in ids:
-        st.session_state.selected_request = ids[0]
+if st.session_state.get("dashboard_request_selector") not in ids:
+    st.session_state.dashboard_request_selector = ids[0]
 
-    rid = st.selectbox("Request", ids, format_func=lambda i: labels[i], key="selected_request")
+rid = st.selectbox(
+    "Request",
+    ids,
+    format_func=lambda i: labels[i],
+    key="dashboard_request_selector"
+)
     req = db.get_request(rid)
     matches = db.get_matches(rid)
     covered = sum(1 for x in matches if x["status"] == "Accepted")
