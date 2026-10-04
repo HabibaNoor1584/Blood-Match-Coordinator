@@ -12,7 +12,7 @@ import db
 import llm
 import rules
 
-MAX_STEPS = 8
+MAX_STEPS = 10
 
 
 class _Steps:
