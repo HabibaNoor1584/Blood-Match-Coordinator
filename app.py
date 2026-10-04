@@ -1,3 +1,4 @@
+```python
 """BloodMatch Coordinator: Streamlit app.
 Demo with SYNTHETIC data. Organizes information only. Makes no medical decisions.
 """
@@ -225,7 +226,6 @@ def page_dashboard():
     alerted_matches = [x for x in matches if x["status"] == "Alerted"]
     declined_matches = [x for x in matches if x["status"] == "Declined"]
 
-    # Manual refresh so the coordinator can immediately see donor responses
     if st.button("🔄 Refresh donor responses", key=f"refresh_dashboard_{rid}"):
         st.rerun()
 
@@ -275,7 +275,7 @@ def page_dashboard():
 
     elif declined_matches:
         st.warning(
-            f"Donor alerts were sent, but no donor has accepted this request yet."
+            "Donor alerts were sent, but no donor has accepted this request yet."
         )
 
     left, right = st.columns([3, 2])
@@ -290,7 +290,10 @@ def page_dashboard():
     with right:
         st.subheader("Units covered")
         units = req["units"] or 0
-        st.progress(min(covered / units, 1.0) if units else 0.0, text=f"{covered} of {units} donors accepted")
+        st.progress(
+            min(covered / units, 1.0) if units else 0.0,
+            text=f"{covered} of {units} donors accepted"
+        )
         st.caption(
             f"{len(matches)} donors in pool  |  "
             f"{sum(1 for x in matches if x['status'] == 'Alerted')} alerted, awaiting reply"
@@ -299,13 +302,20 @@ def page_dashboard():
     if req["briefing"]:
         st.info(req["briefing"])
 
-    t1, t2, t3, t4 = st.tabs(["AI Workflow", "Donor pool", "Edit request", "Agent trace and audit log"])
+    t1, t2, t3, t4 = st.tabs(
+        ["AI Workflow", "Donor pool", "Edit request", "Agent trace and audit log"]
+    )
 
     with t1:
         st.subheader("Automated workflow")
-        st.write("The requester submits the form directly. The bounded agent validates the request, applies coded donor rules, "
-                 "builds a donor pool, drafts AI messages/briefing, and automatically alerts eligible donors.")
-        st.success("Human review is still required for final medical donor screening. The system does not make medical decisions.")
+        st.write(
+            "The requester submits the form directly. The bounded agent validates the request, applies coded donor rules, "
+            "builds a donor pool, drafts AI messages/briefing, and automatically alerts eligible donors."
+        )
+        st.success(
+            "Human review is still required for final medical donor screening. "
+            "The system does not make medical decisions."
+        )
 
         accepted = db.accepted_donors(rid)
         if accepted:
@@ -367,24 +377,45 @@ def page_dashboard():
             index=([""] + rules.BLOOD_GROUPS).index(req["blood_group"] or ""),
             key=f"e_g{rid}"
         )
-        units_v = c2.number_input("Units", 1, 20, int(req["units"] or 1), key=f"e_u{rid}")
+        units_v = c2.number_input(
+            "Units", 1, 20, int(req["units"] or 1), key=f"e_u{rid}"
+        )
         hrs = c3.selectbox(
             "Needed", HOURS,
-            index=HOURS.index(min(HOURS, key=lambda v: abs(v - (req["needed_in_hours"] or 12)))),
-            format_func=lambda h: f"within {h} hours", key=f"e_h{rid}"
+            index=HOURS.index(
+                min(HOURS, key=lambda v: abs(v - (req["needed_in_hours"] or 12)))
+            ),
+            format_func=lambda h: f"within {h} hours",
+            key=f"e_h{rid}"
         )
 
         d1, d2 = st.columns(2)
-        hosp = d1.text_input("Hospital", req["hospital"] or "", key=f"e_ho{rid}")
+        hosp = d1.text_input(
+            "Hospital", req["hospital"] or "", key=f"e_ho{rid}"
+        )
         cities = [""] + list(rules.CITIES)
-        city = d2.selectbox("City", cities, index=cities.index(req["city"] or ""), key=f"e_c{rid}")
+        city = d2.selectbox(
+            "City",
+            cities,
+            index=cities.index(req["city"] or ""),
+            key=f"e_c{rid}"
+        )
 
         e1, e2 = st.columns(2)
-        cname = e1.text_input("Contact person", req["contact_name"] or "", key=f"e_n{rid}")
-        cphone = e2.text_input("Contact phone", req["contact_phone"] or "", key=f"e_p{rid}")
+        cname = e1.text_input(
+            "Contact person", req["contact_name"] or "", key=f"e_n{rid}"
+        )
+        cphone = e2.text_input(
+            "Contact phone", req["contact_phone"] or "", key=f"e_p{rid}"
+        )
 
         b1, b2, _ = st.columns([2, 1.5, 3])
-        if b1.button("Save and re-run AI workflow", type="primary", key=f"save{rid}"):
+
+        if b1.button(
+            "Save and re-run AI workflow",
+            type="primary",
+            key=f"save{rid}"
+        ):
             db.update_request(rid, {
                 "blood_group": group,
                 "units": units_v,
@@ -395,15 +426,29 @@ def page_dashboard():
                 "needed_in_hours": hrs,
                 "status": "New",
             })
-            db.audit(rid, "request_edited", "Coordinator updated the details")
+            db.audit(
+                rid,
+                "request_edited",
+                "Coordinator updated the details"
+            )
             with st.spinner("Re-running the AI workflow..."):
-                res = agent.run_agent(rid, st.session_state.get("lang", "English"))
-            st.session_state.flash = f"AI workflow re-run. Status: {res['status']}. Pool: {res['pool']}."
+                res = agent.run_agent(
+                    rid,
+                    st.session_state.get("lang", "English")
+                )
+            st.session_state.flash = (
+                f"AI workflow re-run. Status: {res['status']}. "
+                f"Pool: {res['pool']}."
+            )
             st.rerun()
 
         if b2.button("Close request", key=f"close{rid}"):
             db.update_request(rid, {"status": "Closed"})
-            db.audit(rid, "request_closed", "Closed by coordinator")
+            db.audit(
+                rid,
+                "request_closed",
+                "Closed by coordinator"
+            )
             st.rerun()
 
     with t4:
@@ -411,16 +456,122 @@ def page_dashboard():
         trace = [r for r in log if r["event"].startswith("agent:")]
         st.markdown("**Agent steps**")
         for i, r in enumerate(trace, 1):
-            st.write(f"{i}. `{r['event'][6:]}`: {r['detail']}")
+            st.write(
+                f"{i}. `{r['event'][6:]}`: {r['detail']}"
+            )
+
         with st.expander("Full audit log"):
             st.dataframe(
-                pd.DataFrame(log)[["ts", "event", "detail"]] if log else pd.DataFrame(),
+                pd.DataFrame(log)[["ts", "event", "detail"]]
+                if log else pd.DataFrame(),
                 width="stretch",
                 hide_index=True
             )
 
 
 # ================================================================ donor portal
+
+def _donor_form_register():
+    st.subheader("Register as a volunteer donor")
+    st.caption(
+        "You will be alerted when a compatible request is within 3 km of your location. "
+        "You can pause or delete your profile at any time."
+    )
+
+    city = st.selectbox("City", list(rules.CITIES), key="r_city")
+    clat, clon = rules.CITIES[city]
+
+    with st.form("register"):
+        a, b = st.columns(2)
+        name = a.text_input("Full name")
+        phone = b.text_input(
+            "Phone number",
+            placeholder="03XX-XXXXXXX"
+        )
+
+        c, d = st.columns(2)
+        group = c.selectbox("Blood group", rules.BLOOD_GROUPS)
+        age = d.number_input(
+            "Age (adults only)",
+            18,
+            65,
+            25
+        )
+
+        never = st.checkbox("I have never donated blood")
+
+        last = st.date_input(
+            "Date of last donation",
+            value=None,
+            max_value=date.today(),
+            disabled=never
+        )
+
+        with st.expander("Fine-tune your location (optional)"):
+            st.caption(
+                "Defaults to your city centre. In a real deployment this would come "
+                "from your device with your permission."
+            )
+            lat = st.number_input(
+                "Latitude",
+                value=float(clat),
+                format="%.4f",
+                key=f"lat_{city}"
+            )
+            lon = st.number_input(
+                "Longitude",
+                value=float(clon),
+                format="%.4f",
+                key=f"lon_{city}"
+            )
+
+        consent = st.checkbox(
+            "I agree to be contacted about blood requests near me. "
+            "I understand the blood bank will do the final medical screening "
+            "and that I can delete my profile at any time."
+        )
+
+        if st.form_submit_button("Register", type="primary"):
+            if not name.strip() or not rules.valid_phone(phone):
+                st.error(
+                    "Please enter your name and a valid phone number."
+                )
+
+            elif not consent:
+                st.error(
+                    "Consent is required so we can contact you."
+                )
+
+            elif db.find_donor_by_phone(phone):
+                st.error(
+                    "This phone number is already registered. "
+                    "Use the Sign in tab."
+                )
+
+            else:
+                did = db.add_donor({
+                    "name": name.strip(),
+                    "phone": phone.strip(),
+                    "blood_group": group,
+                    "age": int(age),
+                    "city": city,
+                    "lat": lat,
+                    "lon": lon,
+                    "last_donation": (
+                        None
+                        if never or not last
+                        else last.isoformat()
+                    ),
+                    "consent": True,
+                })
+
+                st.session_state.donor_id = did
+                st.rerun()
+
+
+# ================================================================
+# DONOR INBOX
+# ================================================================
 
 @st.fragment(run_every="5s")
 def _inbox(donor_id):
@@ -429,7 +580,7 @@ def _inbox(donor_id):
     st.subheader("📬 Your Blood Donation Requests")
     st.caption(
         "New blood requests matching your donor profile appear here. "
-        "Review the case and choose whether you are willing to donate."
+        "Review each request and choose whether you are willing to donate."
     )
 
     if not items:
@@ -448,19 +599,29 @@ def _inbox(donor_id):
             # CASE INFORMATION
             # ---------------------------------------------------------
             st.markdown(
-                f"## 🩸 {URG.get(n['urgency'], '')} {n['urgency']} Blood Request"
+                f"## 🩸 {URG.get(n['urgency'], '')} "
+                f"{n['urgency']} Blood Request"
             )
 
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                st.metric("Blood group", n["blood_group"])
+                st.metric(
+                    "Blood group needed",
+                    n["blood_group"]
+                )
 
             with c2:
-                st.metric("Hospital", n["hospital"])
+                st.metric(
+                    "Hospital",
+                    n["hospital"]
+                )
 
             with c3:
-                st.metric("City", n["city"])
+                st.metric(
+                    "City",
+                    n["city"]
+                )
 
             st.markdown(
                 f"**Request created:** {n['created']}  \n"
@@ -470,7 +631,7 @@ def _inbox(donor_id):
             st.divider()
 
             # ---------------------------------------------------------
-            # MESSAGE FROM COORDINATOR
+            # DONATION REQUEST
             # ---------------------------------------------------------
             st.subheader("📣 Donation Request")
 
@@ -479,27 +640,28 @@ def _inbox(donor_id):
             ms = n["match_status"]
 
             # ---------------------------------------------------------
-            # REQUEST IS STILL WAITING FOR DONOR RESPONSE
+            # DONOR MUST ACCEPT OR DECLINE
             # ---------------------------------------------------------
             if ms == "Alerted" and n["req_status"] not in db.CLOSED:
 
                 st.warning(
-                    "🩸 This donor request is waiting for your response."
+                    "🩸 This blood request is waiting for your response."
                 )
 
                 st.markdown(
                     """
-                    **Are you willing and available to donate blood for this case?**
+                    ### Are you willing and available to donate blood for this case?
 
-                    By selecting **Accept**, you are telling the coordinator that
-                    you are willing to proceed with this donation request.
+                    By selecting **I am willing to donate**, you are telling the
+                    coordinator that you are willing to proceed with this donation
+                    request.
 
                     Your acceptance does not replace hospital blood-bank screening.
                     Final donor eligibility will be confirmed by the hospital.
                     """
                 )
 
-                c1, c2, _ = st.columns([1.5, 1.5, 3])
+                c1, c2, _ = st.columns([1.8, 1.8, 3])
 
                 with c1:
                     if st.button(
@@ -508,15 +670,19 @@ def _inbox(donor_id):
                         type="primary",
                         use_container_width=True,
                     ):
-                        res = db.respond(n["id"], True)
+                        res = db.respond(
+                            n["id"],
+                            True
+                        )
 
                         if res == "busy":
                             st.error(
-                                "You have already accepted another active blood request."
+                                "You already accepted another active blood request."
                             )
                         else:
                             st.success(
-                                "Your willingness to donate has been recorded."
+                                "✅ Your willingness to donate has been recorded. "
+                                "The coordinator has been notified."
                             )
 
                         st.rerun(scope="fragment")
@@ -527,7 +693,10 @@ def _inbox(donor_id):
                         key=f"decline_{n['id']}",
                         use_container_width=True,
                     ):
-                        db.respond(n["id"], False)
+                        db.respond(
+                            n["id"],
+                            False
+                        )
 
                         st.info(
                             "You have declined this blood request."
@@ -554,7 +723,7 @@ def _inbox(donor_id):
                     """
                 )
 
-                st.subheader("📞 Requester Contact")
+                st.subheader("📞 Requester / Patient Contact")
 
                 st.info(
                     f"**Requester / Patient representative:** "
@@ -574,10 +743,8 @@ def _inbox(donor_id):
                 )
 
                 st.caption(
-                    "Important: This system only coordinates the connection. "
                     "Please confirm with the hospital blood bank before travelling. "
-                    "The blood bank performs the final donor screening and "
-                    "determines medical eligibility."
+                    "The blood bank will perform the final donor screening."
                 )
 
             # ---------------------------------------------------------
@@ -594,133 +761,69 @@ def _inbox(donor_id):
                 )
 
             # ---------------------------------------------------------
-            # REQUEST CLOSED BEFORE DONOR RESPONDED
+            # REQUEST CLOSED
             # ---------------------------------------------------------
             elif n["req_status"] in db.CLOSED and ms != "Accepted":
 
                 st.info(
                     "🔒 This blood request has been closed before you accepted it."
                 )
-                
-def _donor_form_register():
-    st.subheader("Register as a volunteer donor")
-    st.caption("You will be alerted when a compatible request is within 3 km of your location. You can pause or delete your profile at any time.")
-    city = st.selectbox("City", list(rules.CITIES), key="r_city")
-    clat, clon = rules.CITIES[city]
-
-    with st.form("register"):
-        a, b = st.columns(2)
-        name = a.text_input("Full name")
-        phone = b.text_input("Phone number", placeholder="03XX-XXXXXXX")
-        c, d = st.columns(2)
-        group = c.selectbox("Blood group", rules.BLOOD_GROUPS)
-        age = d.number_input("Age (adults only)", 18, 65, 25)
-        never = st.checkbox("I have never donated blood")
-        last = st.date_input("Date of last donation", value=None, max_value=date.today(), disabled=never)
-
-        with st.expander("Fine-tune your location (optional)"):
-            st.caption("Defaults to your city centre. In a real deployment this would come from your device with your permission.")
-            lat = st.number_input("Latitude", value=float(clat), format="%.4f", key=f"lat_{city}")
-            lon = st.number_input("Longitude", value=float(clon), format="%.4f", key=f"lon_{city}")
-
-        consent = st.checkbox(
-            "I agree to be contacted about blood requests near me. I understand the blood bank "
-            "will do the final medical screening and that I can delete my profile at any time."
-        )
-
-        if st.form_submit_button("Register", type="primary"):
-            if not name.strip() or not rules.valid_phone(phone):
-                st.error("Please enter your name and a valid phone number.")
-            elif not consent:
-                st.error("Consent is required so we can contact you.")
-            elif db.find_donor_by_phone(phone):
-                st.error("This phone number is already registered. Use the Sign in tab.")
-            else:
-                did = db.add_donor({
-                    "name": name.strip(),
-                    "phone": phone.strip(),
-                    "blood_group": group,
-                    "age": int(age),
-                    "city": city,
-                    "lat": lat,
-                    "lon": lon,
-                    "last_donation": None if never or not last else last.isoformat(),
-                    "consent": True,
-                })
-                st.session_state.donor_id = did
-                st.rerun()
-
-
-@st.fragment(run_every="5s")
-def _inbox(donor_id):
-    items = db.donor_notifications(donor_id)
-    st.subheader("Your alerts")
-    st.caption("This list refreshes every few seconds.")
-
-    if not items:
-        st.info("No alerts yet. You will see requests within 3 km that match your blood group here.")
-
-    for n in items:
-        with st.container(border=True):
-            st.markdown(
-                f"**{URG.get(n['urgency'], '')} {n['blood_group']} needed at {n['hospital']}, {n['city']}**  \n"
-                f"<small>{n['created']} via {n['channel']}</small>",
-                unsafe_allow_html=True,
-            )
-            st.write(n["message"])
-            ms = n["match_status"]
-
-            if n["req_status"] in db.CLOSED and ms != "Accepted":
-                st.caption("This request is now closed.")
-            elif ms == "Alerted":
-                c1, c2, _ = st.columns([1, 1, 4])
-                if c1.button("Accept", key=f"acc_{n['id']}", type="primary"):
-                    res = db.respond(n["id"], True)
-                    if res == "busy":
-                        st.warning("You already accepted another active request.")
-                    st.rerun(scope="fragment")
-
-                if c2.button("Decline", key=f"dec_{n['id']}"):
-                    db.respond(n["id"], False)
-                    st.rerun(scope="fragment")
-
-            elif ms == "Accepted":
-                st.success(
-                    f"Thank you. Contact {n['contact_name'] or 'the requester'} on {n['contact_phone']} and "
-                    f"confirm with the hospital blood bank at {n['hospital']} before travelling. "
-                    "They will do the medical screening."
-                )
-
-            elif ms == "Declined":
-                st.caption("You declined this request.")
 
 
 def _donor_home(donor):
     top = st.columns([4, 1])
-    top[0].subheader(f"Hello, {donor['name'].split()[0]}")
-
-    if top[1].button("Sign out"):
-        st.session_state.pop("donor_id", None)
-        st.rerun()
-
-    days = rules.days_since(donor["last_donation"])
-    st.caption(
-        f"{donor['blood_group']}  |  {donor['city']}  |  last donation: "
-        f"{'never' if days is None else f'{days} days ago'}  |  alerts within {rules.RULES['alert_radius_km']:g} km"
+    top[0].subheader(
+        f"Hello, {donor['name'].split()[0]}"
     )
 
-    avail = st.toggle("I am available to donate", value=bool(donor["available"]), key=f"avail_{donor['id']}")
+    if top[1].button("Sign out"):
+        st.session_state.pop(
+            "donor_id",
+            None
+        )
+        st.rerun()
+
+    days = rules.days_since(
+        donor["last_donation"]
+    )
+
+    st.caption(
+        f"{donor['blood_group']}  |  {donor['city']}  |  last donation: "
+        f"{'never' if days is None else f'{days} days ago'}  |  "
+        f"alerts within {rules.RULES['alert_radius_km']:g} km"
+    )
+
+    avail = st.toggle(
+        "I am available to donate",
+        value=bool(donor["available"]),
+        key=f"avail_{donor['id']}"
+    )
+
     if avail != bool(donor["available"]):
-        db.update_donor(donor["id"], available=1 if avail else 0)
+        db.update_donor(
+            donor["id"],
+            available=1 if avail else 0
+        )
         st.rerun()
 
     _inbox(donor["id"])
 
     with st.expander("Delete my profile"):
-        st.caption("This removes your details and alerts permanently.")
-        if st.checkbox("I understand", key="del_ok") and st.button("Delete my profile"):
-            db.delete_donor(donor["id"])
-            st.session_state.pop("donor_id", None)
+        st.caption(
+            "This removes your details and alerts permanently."
+        )
+
+        if (
+            st.checkbox("I understand", key="del_ok")
+            and st.button("Delete my profile")
+        ):
+            db.delete_donor(
+                donor["id"]
+            )
+            st.session_state.pop(
+                "donor_id",
+                None
+            )
             st.rerun()
 
 
@@ -728,35 +831,63 @@ def page_donor():
     st.title("Donor Portal")
     banner()
 
-    donor = db.get_donor(st.session_state.get("donor_id")) if st.session_state.get("donor_id") else None
+    donor = (
+        db.get_donor(st.session_state.get("donor_id"))
+        if st.session_state.get("donor_id")
+        else None
+    )
+
     if donor:
         _donor_home(donor)
         return
 
-    t1, t2 = st.tabs(["Register", "Sign in"])
+    t1, t2 = st.tabs(
+        ["Register", "Sign in"]
+    )
+
     with t1:
         _donor_form_register()
 
     with t2:
-        phone = st.text_input("Phone number you registered with", key="si_phone")
-        st.caption("Demo sign-in only. A real deployment needs OTP verification.")
+        phone = st.text_input(
+            "Phone number you registered with",
+            key="si_phone"
+        )
 
-        if st.button("Sign in", type="primary"):
+        st.caption(
+            "Demo sign-in only. A real deployment needs OTP verification."
+        )
+
+        if st.button(
+            "Sign in",
+            type="primary"
+        ):
             d = db.find_donor_by_phone(phone)
+
             if d:
                 st.session_state.donor_id = d["id"]
                 st.rerun()
-            st.error("No donor found with that number.")
+
+            st.error(
+                "No donor found with that number."
+            )
 
         helpers = db.donors_with_notifications()
+
         if helpers:
-            with st.expander("Demo helper: sign in as a synthetic donor who has an alert"):
+            with st.expander(
+                "Demo helper: sign in as a synthetic donor who has an alert"
+            ):
                 pick = st.selectbox(
                     "Donor",
                     helpers,
-                    format_func=lambda d: f"{d['name']} ({d['blood_group']}, {d['city']})"
+                    format_func=lambda d:
+                        f"{d['name']} ({d['blood_group']}, {d['city']})"
                 )
-                if st.button("Sign in as this donor"):
+
+                if st.button(
+                    "Sign in as this donor"
+                ):
                     st.session_state.donor_id = pick["id"]
                     st.rerun()
 
@@ -793,13 +924,39 @@ national traffic, and data resets when the cloud app restarts.
     st.json(rules.RULES)
 
     st.subheader("Reset demo data")
-    st.caption("Deletes all requests, alerts and registered donors, then reloads 300 synthetic donors.")
-    if st.checkbox("I understand this deletes everything") and st.button("Reset demo data"):
+    st.caption(
+        "Deletes all requests, alerts and registered donors, then reloads 300 synthetic donors."
+    )
+
+    if (
+        st.checkbox("I understand this deletes everything")
+        and st.button("Reset demo data")
+    ):
         db.reset_all()
-        for k in ("donor_id", "selected_request", "last_created"):
-            st.session_state.pop(k, None)
-        st.success("Demo data reset.")
+
+        for k in (
+            "donor_id",
+            "selected_request",
+            "last_created"
+        ):
+            st.session_state.pop(
+                k,
+                None
+            )
+
+        st.success(
+            "Demo data reset."
+        )
 
 
-{"Coordinator Dashboard": page_dashboard, "New Request": page_new_request,
- "Donor Portal": page_donor, "About & Limits": page_about}[st.session_state.page]()
+# ================================================================
+# APP ROUTING
+# ================================================================
+
+{
+    "Coordinator Dashboard": page_dashboard,
+    "New Request": page_new_request,
+    "Donor Portal": page_donor,
+    "About & Limits": page_about
+}[st.session_state.page]()
+```
