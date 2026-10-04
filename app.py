@@ -478,7 +478,7 @@ def _donor_form_register():
         "You can pause or delete your profile at any time."
     )
 
-    city = st.selectbox("City", list(rules.CITIES), key="r_city")
+    city = st.selectbox("City", list(rules.CITIES), key="donor_register_city")
     clat, clon = rules.CITIES[city]
 
     with st.form("register"):
