@@ -1,5 +1,4 @@
 """BloodMatch Coordinator: Streamlit app.
-
 Demo with SYNTHETIC data. Organizes information only. Makes no medical decisions.
 """
 import json
@@ -34,13 +33,10 @@ def _boot():
 
 
 _boot()
-
 PAGES = ["Coordinator Dashboard", "New Request", "Donor Portal", "About & Limits"]
 URG = {"Critical": "🔴", "High": "🟠", "Normal": "🟢"}
 ICON = {"ask_requester": "✉️", "alert_donors": "📣", "widen_radius": "🔭", "notify_bank": "🏥", "update_requester": "💬"}
 HOURS = [3, 6, 12, 24, 48, 72]
-DEMO_TEXT = ("Urgent! Need 2 units of B+ blood tonight at City Care Hospital Rawalpindi. "
-             "Please contact Ahmed.")
 FORM_DEFAULTS = {"f_group": "", "f_units": 1, "f_hospital": "", "f_city": "", "f_name": "", "f_phone": "", "f_hours": 6}
 
 if "page" not in st.session_state:
@@ -72,85 +68,119 @@ with st.sidebar:
 
 
 # ================================================================ new request
-def apply_extracted(data):
-    st.session_state.f_group = data.get("blood_group") or ""
-    st.session_state.f_units = int(data.get("units") or 0)
-    st.session_state.f_hospital = data.get("hospital") or ""
-    st.session_state.f_city = data.get("city") if data.get("city") in rules.CITIES else ""
-    st.session_state.f_name = data.get("contact_name") or ""
-    st.session_state.f_phone = data.get("contact_phone") or ""
-    h = data.get("needed_in_hours")
-    if h:
-        st.session_state.f_hours = min(HOURS, key=lambda v: abs(v - h))
-
-
 def page_new_request():
     st.title("New Blood Request")
     banner()
-    if st.session_state.pop("clear_form", False):
-        for k, v in FORM_DEFAULTS.items():
-            st.session_state[k] = v
-        st.session_state["paste"] = ""
-        st.session_state.pop("extract_note", None)
+
     for k, v in FORM_DEFAULTS.items():
         st.session_state.setdefault(k, v)
-    st.session_state.setdefault("paste", "")
 
     last = st.session_state.get("last_created")
     if last:
-        msg = f"Request #{last['id']} created. Status: {last['status']}."
-        if last["missing"]:
+        msg = f"Request #{last['id']} submitted. Status: {last['status']}."
+        if last.get("missing"):
             msg += " Missing: " + ", ".join(last["missing"]) + "."
         else:
-            msg += f" {last['pool']} potentially eligible donors pooled."
-        msg += " Messages drafted with Groq." if last["ai_used"] else " Messages drafted from built-in templates."
+            msg += f" {last.get('pool', 0)} potentially eligible donors matched and alerted."
+        if last.get("ai_used"):
+            msg += " AI-generated messages/briefing were used."
         st.success(msg)
-        st.button("Open in dashboard", on_click=goto, args=(last["id"],), type="primary")
 
-    st.subheader("1. Paste a message (optional)")
-    st.caption("For example a WhatsApp message from a patient's family. The AI reads it and fills the form below.")
-    st.text_area("Message", key="paste", height=110, label_visibility="collapsed")
-    c1, c2, _ = st.columns([1.2, 1.2, 4])
-    c1.button("Load demo message", on_click=lambda: st.session_state.update(paste=DEMO_TEXT))
-    if c2.button("Extract details", type="primary"):
-        with st.spinner("Reading the message..."):
-            data, used = llm.extract_request(st.session_state.paste)
-        apply_extracted(data)
-        st.session_state.extract_note = ("Filled using Groq." if used else "Filled using the built-in fallback extractor.") \
-            + " Please check every field."
-    if st.session_state.get("extract_note"):
-        st.info(st.session_state.extract_note)
+        if st.button("Refresh donor responses", key="refresh_request", type="primary"):
+            st.rerun()
 
-    st.subheader("2. Request details")
+        accepted = db.accepted_donors(last["id"])
+        matches = db.get_matches(last["id"])
+
+        st.subheader(f"Request #{last['id']} status")
+        if accepted:
+            st.success(f"{len(accepted)} potential donor(s) have accepted the request.")
+            rows = []
+            for d in accepted:
+                rows.append({
+                    "Potential donor": d["name"],
+                    "Blood group": d["blood_group"],
+                    "Distance (km)": round(d["distance_km"], 2),
+                    "Status": "Accepted",
+                    "Screening": "Pending blood bank screening",
+                })
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            st.warning(
+                "These are potentially eligible volunteers only. Final donor eligibility, compatibility "
+                "and screening must be confirmed by the hospital blood bank."
+            )
+        else:
+            alerted = sum(1 for x in matches if x["status"] == "Alerted")
+            st.info(
+                f"No donor has accepted yet. {alerted} compatible donor(s) have been alerted. "
+                "This page checks the request again when you refresh."
+            )
+
+        st.divider()
+
+    st.subheader("Request details")
+    st.caption("The patient/requester enters the request directly. No WhatsApp message or AI extraction step is required.")
+
     with st.container(border=True):
         a, b, c = st.columns(3)
         a.selectbox("Patient blood group", [""] + rules.BLOOD_GROUPS, key="f_group", format_func=lambda g: g or "Select")
-        b.number_input("Units needed (0 = not stated)", 0, 20, key="f_units")
+        b.number_input("Units needed", 1, 20, key="f_units")
         c.selectbox("Needed", HOURS, key="f_hours", format_func=lambda h: f"within {h} hours")
+
         d, e = st.columns(2)
         d.text_input("Hospital name", key="f_hospital")
         e.selectbox("City", [""] + list(rules.CITIES), key="f_city", format_func=lambda v: v or "Select")
+
         f, g = st.columns(2)
         f.text_input("Contact person", key="f_name")
         g.text_input("Contact phone", key="f_phone", placeholder="03XX-XXXXXXX")
-        st.caption("Distance is measured from the city centre in this demo. Leave fields blank to see the missing-information flow.")
 
-    if st.button("Submit request and run the agent", type="primary"):
-        if not (st.session_state.paste.strip() or st.session_state.f_group or st.session_state.f_hospital):
-            st.warning("Please enter at least some request details.")
-            return
-        data = {
-            "raw_text": st.session_state.paste, "blood_group": st.session_state.f_group,
-            "units": st.session_state.f_units, "hospital": st.session_state.f_hospital.strip(),
-            "city": st.session_state.f_city, "contact_name": st.session_state.f_name.strip(),
-            "contact_phone": st.session_state.f_phone.strip(), "needed_in_hours": st.session_state.f_hours,
+        st.caption(
+            "Distance is measured from the city centre in this demo. The system uses coded compatibility "
+            "and screening rules before contacting donors."
+        )
+
+    if st.button("Submit Blood Request", type="primary"):
+        required = {
+            "blood_group": st.session_state.f_group,
+            "units": st.session_state.f_units,
+            "hospital": st.session_state.f_hospital.strip(),
+            "city": st.session_state.f_city,
+            "contact_name": st.session_state.f_name.strip(),
+            "contact_phone": st.session_state.f_phone.strip(),
+            "needed_in_hours": st.session_state.f_hours,
         }
+
+        if not required["blood_group"]:
+            st.warning("Please select the patient's blood group.")
+            return
+        if not required["hospital"]:
+            st.warning("Please enter the hospital name.")
+            return
+        if not required["city"]:
+            st.warning("Please select the city.")
+            return
+        if not required["contact_name"]:
+            st.warning("Please enter a contact person's name.")
+            return
+        if not rules.valid_phone(required["contact_phone"]):
+            st.warning("Please enter a valid contact phone number.")
+            return
+
+        data = {
+            "raw_text": "",
+            **required,
+        }
+
         rid = db.create_request(data)
-        db.audit(rid, "request_created", "Submitted from the request form")
-        with st.spinner("Checking information, applying rules, drafting messages..."):
+        db.audit(rid, "request_created", "Submitted directly by requester from the request form")
+
+        with st.spinner("AI workflow is checking the request, matching donors, and sending alerts..."):
             res = agent.run_agent(rid, st.session_state.get("lang", "English"))
+
         st.session_state.last_created = {"id": rid, **res}
-        st.session_state.clear_form = True
+        for k, v in FORM_DEFAULTS.items():
+            st.session_state[k] = v
         st.rerun()
 
 
@@ -158,6 +188,7 @@ def page_new_request():
 def page_dashboard():
     st.title("Coordinator Dashboard")
     banner()
+
     if "flash" in st.session_state:
         st.success(st.session_state.pop("flash"))
 
@@ -170,15 +201,19 @@ def page_dashboard():
 
     reqs = db.list_requests()
     if not reqs:
-        st.info("No requests yet. Go to **New Request** and use the demo message to see the full flow.")
+        st.info("No requests yet. Go to **New Request** and submit a request directly.")
         return
-    labels = {r["id"]: f'#{r["id"]}  {URG.get(r["urgency"], "")} {r["urgency"]}  |  {r["units"] or "?"} x '
-                       f'{r["blood_group"] or "?"}  |  {r["city"] or "?"}  |  {r["status"]}' for r in reqs}
+
+    labels = {
+        r["id"]: f'#{r["id"]}  {URG.get(r["urgency"], "")} {r["urgency"]}  |  {r["units"] or "?"} x '
+                 f'{r["blood_group"] or "?"}  |  {r["city"] or "?"}  |  {r["status"]}'
+        for r in reqs
+    }
     ids = list(labels)
     if st.session_state.get("selected_request") not in ids:
         st.session_state.selected_request = ids[0]
-    rid = st.selectbox("Request", ids, format_func=lambda i: labels[i], key="selected_request")
 
+    rid = st.selectbox("Request", ids, format_func=lambda i: labels[i], key="selected_request")
     req = db.get_request(rid)
     matches = db.get_matches(rid)
     covered = sum(1 for x in matches if x["status"] == "Accepted")
@@ -191,91 +226,121 @@ def page_dashboard():
             f"{req['city'] or '?'}  \nUrgency: {URG.get(req['urgency'], '')} {req['urgency']}  |  Status: **{req['status']}**  \n"
             f"Contact: {req['contact_name'] or 'not given'}, {req['contact_phone'] or 'no phone yet'}  \nCreated: {req['created']}"
         )
+
     with right:
         st.subheader("Units covered")
         units = req["units"] or 0
         st.progress(min(covered / units, 1.0) if units else 0.0, text=f"{covered} of {units} donors accepted")
-        st.caption(f"{len(matches)} donors in pool  |  "
-                   f"{sum(1 for x in matches if x['status'] == 'Alerted')} alerted, awaiting reply")
+        st.caption(
+            f"{len(matches)} donors in pool  |  "
+            f"{sum(1 for x in matches if x['status'] == 'Alerted')} alerted, awaiting reply"
+        )
+
     if req["briefing"]:
         st.info(req["briefing"])
 
-    t1, t2, t3, t4 = st.tabs(["Action list", "Donor pool", "Edit request", "Agent trace and audit log"])
+    t1, t2, t3, t4 = st.tabs(["AI Workflow", "Donor pool", "Edit request", "Agent trace and audit log"])
 
     with t1:
+        st.subheader("Automated workflow")
+        st.write("The requester submits the form directly. The bounded agent validates the request, applies coded donor rules, "
+                 "builds a donor pool, drafts AI messages/briefing, and automatically alerts eligible donors.")
+        st.success("Human review is still required for final medical donor screening. The system does not make medical decisions.")
+
+        accepted = db.accepted_donors(rid)
+        if accepted:
+            st.subheader("Accepted potential donors")
+            rows = [{
+                "Donor": d["name"],
+                "Group": d["blood_group"],
+                "Distance (km)": round(d["distance_km"], 2),
+                "Status": "Accepted",
+                "Screening": "Pending blood bank screening",
+            } for d in accepted]
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
         actions = db.list_actions(rid)
-        pending = [a for a in actions if a["status"] == "Pending"]
-        if not pending:
-            st.success("No pending actions.")
-        for a in pending:
-            with st.expander(f'{ICON.get(a["kind"], "•")} {a["description"]}', expanded=True):
-                if a["kind"] == "widen_radius":
-                    st.caption("The agent suggests this. Nothing is searched wider until you approve.")
-                    txt = ""
-                else:
-                    txt = st.text_area("Message (edit before approving)", value=a["message"], key=f"msg_{a['id']}", height=150)
-                    if a["kind"] == "alert_donors":
-                        st.caption("{name} is replaced with each donor's first name. Requester phone is never included.")
-                c1, c2, _ = st.columns([2, 1, 3])
-                label = {"alert_donors": "Approve and alert donors", "widen_radius": "Approve wider search"}.get(a["kind"], "Mark as done")
-                if c1.button(label, key=f"ok_{a['id']}", type="primary"):
-                    st.session_state.flash = agent.approve(a["id"], txt)
-                    st.rerun()
-                if c2.button("Skip", key=f"skip_{a['id']}"):
-                    agent.skip(a["id"])
-                    st.rerun()
-        done = [a for a in actions if a["status"] != "Pending"]
-        if done:
-            with st.expander(f"Completed or skipped ({len(done)})"):
-                for a in done:
+        completed = [a for a in actions if a["status"] != "Pending"]
+        if completed:
+            with st.expander(f"AI-generated workflow actions ({len(completed)})"):
+                for a in completed:
                     st.write(f'**{a["status"]}**: {a["description"]}')
 
     with t2:
         if not matches:
-            st.info("No donors pooled yet. Complete the request details and re-run the agent.")
+            st.info("No donors pooled yet.")
         else:
             rows = []
             for x in matches:
                 gap = rules.days_since(x["last_donation"])
-                rows.append({"Donor": x["name"], "Group": x["blood_group"], "Distance (km)": round(x["distance_km"], 2),
-                             "Days since last donation": gap if gap is not None else "never",
-                             "Past response rate": x["response_rate"], "Status": x["status"],
-                             "Label": "Potentially eligible, pending blood bank screening"})
+                rows.append({
+                    "Donor": x["name"],
+                    "Group": x["blood_group"],
+                    "Distance (km)": round(x["distance_km"], 2),
+                    "Days since last donation": gap if gap is not None else "never",
+                    "Past response rate": x["response_rate"],
+                    "Status": x["status"],
+                    "Label": "Potentially eligible, pending blood bank screening",
+                })
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-            st.caption("Ranked by exact group match, then distance, then longest rest since last donation, then response rate. "
-                       "Basic rules only. The blood bank does the real screening.")
+            st.caption(
+                "Ranked by exact group match, then distance, then longest rest since last donation, then response rate. "
+                "Basic rules only. The blood bank does the real screening."
+            )
+
         if any(x["status"] == "Alerted" for x in matches):
             if st.button("Demo helper: simulate the top alerted donor accepting"):
                 top = next(x for x in matches if x["status"] == "Alerted")
-                nid = db.q("SELECT id FROM notifications WHERE request_id=? AND donor_id=?", (rid, top["donor_id"]))[0]["id"]
-                st.session_state.flash = f"Simulated: {top['name']} -> {db.respond(nid, True)}"
-                st.rerun()
+                nid_rows = db.q(
+                    "SELECT id FROM notifications WHERE request_id=? AND donor_id=?",
+                    (rid, top["donor_id"])
+                )
+                if nid_rows:
+                    st.session_state.flash = f"Simulated: {top['name']} -> {db.respond(nid_rows[0]['id'], True)}"
+                    st.rerun()
 
     with t3:
-        st.caption("Add missing details (for example a phone number), then re-run the agent. "
-                   "Donors who were already alerted are kept.")
+        st.caption("Edit the request and rerun the AI workflow. Already alerted/accepted donors are preserved.")
         c1, c2, c3 = st.columns(3)
-        group = c1.selectbox("Blood group", [""] + rules.BLOOD_GROUPS, index=([""] + rules.BLOOD_GROUPS).index(req["blood_group"] or ""), key=f"e_g{rid}")
-        units_v = c2.number_input("Units", 0, 20, int(req["units"] or 0), key=f"e_u{rid}")
-        hrs = c3.selectbox("Needed", HOURS, index=HOURS.index(min(HOURS, key=lambda v: abs(v - (req["needed_in_hours"] or 12)))),
-                           format_func=lambda h: f"within {h} hours", key=f"e_h{rid}")
+        group = c1.selectbox(
+            "Blood group", [""] + rules.BLOOD_GROUPS,
+            index=([""] + rules.BLOOD_GROUPS).index(req["blood_group"] or ""),
+            key=f"e_g{rid}"
+        )
+        units_v = c2.number_input("Units", 1, 20, int(req["units"] or 1), key=f"e_u{rid}")
+        hrs = c3.selectbox(
+            "Needed", HOURS,
+            index=HOURS.index(min(HOURS, key=lambda v: abs(v - (req["needed_in_hours"] or 12)))),
+            format_func=lambda h: f"within {h} hours", key=f"e_h{rid}"
+        )
+
         d1, d2 = st.columns(2)
         hosp = d1.text_input("Hospital", req["hospital"] or "", key=f"e_ho{rid}")
         cities = [""] + list(rules.CITIES)
         city = d2.selectbox("City", cities, index=cities.index(req["city"] or ""), key=f"e_c{rid}")
+
         e1, e2 = st.columns(2)
         cname = e1.text_input("Contact person", req["contact_name"] or "", key=f"e_n{rid}")
         cphone = e2.text_input("Contact phone", req["contact_phone"] or "", key=f"e_p{rid}")
+
         b1, b2, _ = st.columns([2, 1.5, 3])
-        if b1.button("Save and re-run agent", type="primary", key=f"save{rid}"):
-            db.update_request(rid, {"blood_group": group, "units": units_v, "hospital": hosp.strip(), "city": city,
-                                    "contact_name": cname.strip(), "contact_phone": cphone.strip(), "needed_in_hours": hrs,
-                                    "status": "New"})
+        if b1.button("Save and re-run AI workflow", type="primary", key=f"save{rid}"):
+            db.update_request(rid, {
+                "blood_group": group,
+                "units": units_v,
+                "hospital": hosp.strip(),
+                "city": city,
+                "contact_name": cname.strip(),
+                "contact_phone": cphone.strip(),
+                "needed_in_hours": hrs,
+                "status": "New",
+            })
             db.audit(rid, "request_edited", "Coordinator updated the details")
-            with st.spinner("Re-running the agent..."):
+            with st.spinner("Re-running the AI workflow..."):
                 res = agent.run_agent(rid, st.session_state.get("lang", "English"))
-            st.session_state.flash = f"Agent re-run. Status: {res['status']}. Pool: {res['pool']}."
+            st.session_state.flash = f"AI workflow re-run. Status: {res['status']}. Pool: {res['pool']}."
             st.rerun()
+
         if b2.button("Close request", key=f"close{rid}"):
             db.update_request(rid, {"status": "Closed"})
             db.audit(rid, "request_closed", "Closed by coordinator")
@@ -288,8 +353,11 @@ def page_dashboard():
         for i, r in enumerate(trace, 1):
             st.write(f"{i}. `{r['event'][6:]}`: {r['detail']}")
         with st.expander("Full audit log"):
-            st.dataframe(pd.DataFrame(log)[["ts", "event", "detail"]] if log else pd.DataFrame(),
-                         width="stretch", hide_index=True)
+            st.dataframe(
+                pd.DataFrame(log)[["ts", "event", "detail"]] if log else pd.DataFrame(),
+                width="stretch",
+                hide_index=True
+            )
 
 
 # ================================================================ donor portal
@@ -298,6 +366,7 @@ def _donor_form_register():
     st.caption("You will be alerted when a compatible request is within 3 km of your location. You can pause or delete your profile at any time.")
     city = st.selectbox("City", list(rules.CITIES), key="r_city")
     clat, clon = rules.CITIES[city]
+
     with st.form("register"):
         a, b = st.columns(2)
         name = a.text_input("Full name")
@@ -307,12 +376,17 @@ def _donor_form_register():
         age = d.number_input("Age (adults only)", 18, 65, 25)
         never = st.checkbox("I have never donated blood")
         last = st.date_input("Date of last donation", value=None, max_value=date.today(), disabled=never)
+
         with st.expander("Fine-tune your location (optional)"):
             st.caption("Defaults to your city centre. In a real deployment this would come from your device with your permission.")
             lat = st.number_input("Latitude", value=float(clat), format="%.4f", key=f"lat_{city}")
             lon = st.number_input("Longitude", value=float(clon), format="%.4f", key=f"lon_{city}")
-        consent = st.checkbox("I agree to be contacted about blood requests near me. I understand the blood bank "
-                              "will do the final medical screening and that I can delete my profile at any time.")
+
+        consent = st.checkbox(
+            "I agree to be contacted about blood requests near me. I understand the blood bank "
+            "will do the final medical screening and that I can delete my profile at any time."
+        )
+
         if st.form_submit_button("Register", type="primary"):
             if not name.strip() or not rules.valid_phone(phone):
                 st.error("Please enter your name and a valid phone number.")
@@ -321,9 +395,17 @@ def _donor_form_register():
             elif db.find_donor_by_phone(phone):
                 st.error("This phone number is already registered. Use the Sign in tab.")
             else:
-                did = db.add_donor({"name": name.strip(), "phone": phone.strip(), "blood_group": group, "age": int(age),
-                                    "city": city, "lat": lat, "lon": lon,
-                                    "last_donation": None if never or not last else last.isoformat(), "consent": True})
+                did = db.add_donor({
+                    "name": name.strip(),
+                    "phone": phone.strip(),
+                    "blood_group": group,
+                    "age": int(age),
+                    "city": city,
+                    "lat": lat,
+                    "lon": lon,
+                    "last_donation": None if never or not last else last.isoformat(),
+                    "consent": True,
+                })
                 st.session_state.donor_id = did
                 st.rerun()
 
@@ -333,14 +415,20 @@ def _inbox(donor_id):
     items = db.donor_notifications(donor_id)
     st.subheader("Your alerts")
     st.caption("This list refreshes every few seconds.")
+
     if not items:
         st.info("No alerts yet. You will see requests within 3 km that match your blood group here.")
+
     for n in items:
         with st.container(border=True):
-            st.markdown(f"**{URG.get(n['urgency'], '')} {n['blood_group']} needed at {n['hospital']}, {n['city']}**  \n"
-                        f"<small>{n['created']} via {n['channel']}</small>", unsafe_allow_html=True)
+            st.markdown(
+                f"**{URG.get(n['urgency'], '')} {n['blood_group']} needed at {n['hospital']}, {n['city']}**  \n"
+                f"<small>{n['created']} via {n['channel']}</small>",
+                unsafe_allow_html=True,
+            )
             st.write(n["message"])
             ms = n["match_status"]
+
             if n["req_status"] in db.CLOSED and ms != "Accepted":
                 st.caption("This request is now closed.")
             elif ms == "Alerted":
@@ -350,13 +438,18 @@ def _inbox(donor_id):
                     if res == "busy":
                         st.warning("You already accepted another active request.")
                     st.rerun(scope="fragment")
+
                 if c2.button("Decline", key=f"dec_{n['id']}"):
                     db.respond(n["id"], False)
                     st.rerun(scope="fragment")
+
             elif ms == "Accepted":
-                st.success(f"Thank you. Contact {n['contact_name'] or 'the requester'} on {n['contact_phone']} and "
-                           f"confirm with the hospital blood bank at {n['hospital']} before travelling. "
-                           "They will do the medical screening.")
+                st.success(
+                    f"Thank you. Contact {n['contact_name'] or 'the requester'} on {n['contact_phone']} and "
+                    f"confirm with the hospital blood bank at {n['hospital']} before travelling. "
+                    "They will do the medical screening."
+                )
+
             elif ms == "Declined":
                 st.caption("You declined this request.")
 
@@ -364,17 +457,24 @@ def _inbox(donor_id):
 def _donor_home(donor):
     top = st.columns([4, 1])
     top[0].subheader(f"Hello, {donor['name'].split()[0]}")
+
     if top[1].button("Sign out"):
         st.session_state.pop("donor_id", None)
         st.rerun()
+
     days = rules.days_since(donor["last_donation"])
-    st.caption(f"{donor['blood_group']}  |  {donor['city']}  |  last donation: "
-               f"{'never' if days is None else f'{days} days ago'}  |  alerts within {rules.RULES['alert_radius_km']:g} km")
+    st.caption(
+        f"{donor['blood_group']}  |  {donor['city']}  |  last donation: "
+        f"{'never' if days is None else f'{days} days ago'}  |  alerts within {rules.RULES['alert_radius_km']:g} km"
+    )
+
     avail = st.toggle("I am available to donate", value=bool(donor["available"]), key=f"avail_{donor['id']}")
     if avail != bool(donor["available"]):
         db.update_donor(donor["id"], available=1 if avail else 0)
         st.rerun()
+
     _inbox(donor["id"])
+
     with st.expander("Delete my profile"):
         st.caption("This removes your details and alerts permanently.")
         if st.checkbox("I understand", key="del_ok") and st.button("Delete my profile"):
@@ -386,26 +486,35 @@ def _donor_home(donor):
 def page_donor():
     st.title("Donor Portal")
     banner()
+
     donor = db.get_donor(st.session_state.get("donor_id")) if st.session_state.get("donor_id") else None
     if donor:
         _donor_home(donor)
         return
+
     t1, t2 = st.tabs(["Register", "Sign in"])
     with t1:
         _donor_form_register()
+
     with t2:
         phone = st.text_input("Phone number you registered with", key="si_phone")
         st.caption("Demo sign-in only. A real deployment needs OTP verification.")
+
         if st.button("Sign in", type="primary"):
             d = db.find_donor_by_phone(phone)
             if d:
                 st.session_state.donor_id = d["id"]
                 st.rerun()
             st.error("No donor found with that number.")
+
         helpers = db.donors_with_notifications()
         if helpers:
             with st.expander("Demo helper: sign in as a synthetic donor who has an alert"):
-                pick = st.selectbox("Donor", helpers, format_func=lambda d: f"{d['name']} ({d['blood_group']}, {d['city']})")
+                pick = st.selectbox(
+                    "Donor",
+                    helpers,
+                    format_func=lambda d: f"{d['name']} ({d['blood_group']}, {d['city']})"
+                )
                 if st.button("Sign in as this donor"):
                     st.session_state.donor_id = pick["id"]
                     st.rerun()
@@ -416,23 +525,32 @@ def page_about():
     st.title("About and Limits")
     st.markdown(
         """
-**What it does.** A request arrives, the information is checked, predefined rules are applied, a pool of nearby
-potentially eligible donors is organized, and the coordinator gets an action list with drafted messages.
+**What it does.** A patient/requester submits a structured blood request directly. A bounded AI agent validates
+the request, applies predefined compatibility and screening rules, organizes a pool of nearby potentially eligible
+donors, drafts communications, and automatically alerts compatible donors.
 
-**What the AI does.** Groq (gpt-oss) reads messy request text and writes messages. A bounded agent (maximum 8 steps)
-runs the pipeline and logs every step. **Rules written in code decide compatibility and eligibility.**
-Nothing is sent to donors until a human approves it.
+**AI components.**
+- **Agentic AI:** a bounded tool-using agent validates, searches, evaluates pool size, can widen the search within
+  predefined limits, drafts communications, sends donor alerts, and logs its steps.
+- **Generative AI:** Groq/gpt-oss drafts donor alerts, blood-bank handover notes, requester updates and a short briefing.
+- **AI workflow / business process automation:** the complete request-to-donor-response process is automated through
+  validation, rule checks, donor matching, alerting, response tracking and requester status updates.
 
-**Not included.** Medical decisions or advice, final eligibility, cross-matching or lab work, blood stock management,
-payments, real patient or donor data, verification of donor claims, any guarantee of a response, and emergency dispatch.
+**Safety boundary.** Rules written in code decide compatibility and basic demo eligibility. The AI model does not make
+medical decisions. Donors are labelled potentially eligible pending blood-bank screening.
+
+**Not included.** Final eligibility, cross-matching or lab work, blood stock management, payments, real patient data,
+verification of donor claims, emergency dispatch, or a guarantee of donor response.
 
 **Known limits of this demo.** Alerts are an in-app inbox plus a logged mock SMS. Location is a city centre or
 manually entered coordinates. Sign-in is by phone number only. Streamlit with SQLite suits a demo or pilot, not
 national traffic, and data resets when the cloud app restarts.
         """
     )
+
     st.subheader("Rules in use")
     st.json(rules.RULES)
+
     st.subheader("Reset demo data")
     st.caption("Deletes all requests, alerts and registered donors, then reloads 300 synthetic donors.")
     if st.checkbox("I understand this deletes everything") and st.button("Reset demo data"):
